@@ -2,19 +2,20 @@ import numbers
 import warnings
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Self, Literal, TypeVar, Generic
+from typing import Self, Literal, Generic, final
 
 import numpy as np
 import torch
-from biotite.structure import AffineTransformation, BondList
+from biotite.structure import AffineTransformation
 
 from biotite.structure.atoms import AtomArrayStack, AtomArray
-from biotite.typing import M, N, NDArray1, NDArray2, NDArray3
+from biotite.typing import M, N, NDArray1, NDArray2
 from torch import Tensor
 
 from mm_observables.forward_model.protocol import ForwardModel
-from mm_observables.measurement.base import Measurement
+from mm_observables.measurement.base import MeasurementMetadata
 
 """
 Design choices: We see two options in re-imagining AtomArray and AtomArrayStack for
@@ -29,7 +30,17 @@ option but as tenets of our design
 A related goal is to eventually push as much of this as possible upstream to biotite, and to
 work with biotite's developers to work towards tensor-compatible operations everywhere in biotite.
 
+We have defined our preferred method of loading a structure from a CIF file as being through the 
+StructureDetermination.from_cif() method, since the CIF file represents one particular determination
+of a protein structure, which is fundamentally linked to some measurement or predictive framework.
 """
+
+class AltlocOpts(str, Enum):
+    """Options for handling alternative locations in a structure."""
+    ALL = "all"
+    OCCUPANCY = "occupancy"
+    FIRST = "first"
+
 
 def set_pytorch_ready_false(methods: list[str]):
     """Decorator to set pytorch_ready to False for selected methods in a class."""
@@ -65,6 +76,7 @@ PYTORCH_INCOMPATIBLE_METHODS = [
 ]
 
 
+@final
 @set_pytorch_ready_false(PYTORCH_INCOMPATIBLE_METHODS)
 class Structure(AtomArrayStack, Generic[M, N]):
     """Our fundamental data container for structural information. The key determinant of whether
@@ -83,11 +95,7 @@ class Structure(AtomArrayStack, Generic[M, N]):
     b_factor: NDArray2[M, N, np.floating] | NDArray1[N, np.floating]
     occupancy: NDArray2[M, N, np.floating] | NDArray1[N, np.floating]
 
-    def __init__(
-            self,
-            *args,
-            **kwargs
-    ):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pytorch_ready = False
 
@@ -105,7 +113,7 @@ class Structure(AtomArrayStack, Generic[M, N]):
         """
         Convert all annotations to torch.Tensor and set self._pytorch_ready = True
         to warn when operations might result in non-tensor values. Must be idempotent up to device.
-        Must call this before using the structure in an PyTorch model. This method must set
+        Must call this before using the structure in a PyTorch model. This method must set
         self._pytorch_ready = True.
         """
         ...
@@ -128,12 +136,65 @@ class Structure(AtomArrayStack, Generic[M, N]):
         Superimpose the `mobile` structure onto this one using sequence alignment to choose
         coordinates to compare, in a **differentiable** fashion (i.e. must use PyTorch tensors).
 
+        If you want to superimpose `self` onto another structure, instantiate that structure as
+        a Structure object and call this method from that structure.
+
         Returns:
         --------
         fitted: Structure the superimposed structure
         transform: AffineTransformation the transformation used to superimpose it
         fixed_anchor_indices, mobile_anchor_indices: np.ndarray the indices of the aligned residues,
             as returned by biotite.structure.superimpose_homologs
+        """
+        ...
+
+    def multiconformer_to_ensemble(self) -> Self:
+        """Convert a multiconformer/altloc-encoded structure into an ensemble of structures.
+        Many PDB entries contain "altloc" annotations indicating specific residues that have
+        alternative coordinates. As of this commit, structure predictors cannot handle this
+        encoding, so we must convert to an ensemble of structures.
+        """
+        ...
+
+    def ensemble_to_multiconformer(self) -> Self:
+        """Convert an ensemble structure into a multiconformer/altloc structure."""
+        ...
+
+    # methods we want to add to AtomArrayStack, all should preserve gradients, e.g.,
+    # any masking must pass gradients back through to the original tensor.
+    def get_unique_atom_identifiers(self):
+        """Return a list of chain/residue/atom identifiers for each unique atom."""
+        ...
+
+    def query(self, query_string: str, style: Literal["pymol", "pandas"] = "pymol") -> Self:
+        """Return a new Structure object containing only the atoms matching the query string,
+        in such a way that gradients are preserved through tensors if attributes and coords
+        are in tensor form
+
+        Accepts either pandas/Atomworks-style queries or PyMOL-style queries, but you must
+        specify which you are using.
+        """
+        ...
+
+    def mask(
+        self, query_string: str, style: Literal["pymol", "pandas"] = "pymol"
+    ) -> np.ndarray[bool]:
+        """Return a boolean mask of the atoms matching the query string.
+
+        Accepts either pandas/Atomworks-style queries or PyMOL-style queries, but you must
+        specify which you are using.
+
+        """
+        ...
+
+    def get_mask_indices(
+            self, query_string: str, style: Literal["pymol", "pandas"] = "pymol"
+    ) -> np.ndarray[int]:
+        """Return a boolean mask of the atoms matching the query string.
+
+        Accepts either pandas/Atomworks-style queries or PyMOL-style queries, but you must
+        specify which you are using.
+
         """
         ...
 
@@ -160,7 +221,7 @@ class Structure(AtomArrayStack, Generic[M, N]):
         """
         if not isinstance(item, (AtomArray, AtomArrayStack, Structure)):
             return False
-        if not self.equal_annotation_categories(item):
+        if not self.equal_annotation_categories(item):  # noqa
             return False
         for name in self.get_annotation_categories():
             # ... allowing `nan` values causes type-casting, which is
@@ -207,7 +268,7 @@ class Structure(AtomArrayStack, Generic[M, N]):
         """
         If the attribute is an annotation, the :attr:`value` is saved
         to the annotation in the dictionary.
-        Exposes coordinates.
+        Exposes atomic coordinates.
         :attr:`value` must have same length as :func:`array_length()`.
         """
         if attr == "coord":
@@ -231,41 +292,6 @@ class Structure(AtomArrayStack, Generic[M, N]):
     def __setitem__(self, index: numbers.Integral, array: Self):
         ...
 
-    # methods we want to add to AtomArrayStack, all should preserve gradients, e.g.,
-    # any masking must pass gradients back through to the original tensor.
-    def get_unique_atom_identifiers(self):
-        """Return a list of chain/residue/atom identifiers for each unique atom."""
-        ...
-
-    def query(self, query_string: str, style: Literal["pymol", "pandas"] = "pymol") -> Self:
-        """Return a new Structure object containing only the atoms matching the query string,
-        in a such a way that gradients are preserved through tensors if attributes and coords
-        are in tensor form
-
-        Accepts either pandas/Atomworks-style queries or PyMOL-style queries, but you must
-        specify which you are using.
-        """
-        ...
-
-    def mask(
-        self, query_string: str, style: Literal["pymol", "pandas"] = "pymol"
-    ) -> np.ndarray[bool]:
-        """Return a boolean mask of the atoms matching the query string.
-
-        Accepts either pandas/Atomworks-style queries or PyMOL-style queries, but you must
-        specify which you are using.
-
-        """
-        ...
-
-    def get_indices(self, query_string: str, style: Literal["pymol", "pandas"] = "pymol") -> np.ndarray[int]:
-        """Return a boolean mask of the atoms matching the query string.
-
-        Accepts either pandas/Atomworks-style queries or PyMOL-style queries, but you must
-        specify which you are using.
-
-        """
-        ...
 
 
 def is_floating_point(x: Tensor | np.ndarray) -> bool:
@@ -286,7 +312,7 @@ class StructureDetermination:
     Note that we are explicitly not including old PDB file support here.
     """
     structure: Structure
-    measurements: list[Measurement]
+    measurements: list[MeasurementMetadata] | None
     # TODO: include this or not? Method descriptions are usually in PDB/CIF files.
     forward_model: ForwardModel
 
@@ -299,12 +325,22 @@ class StructureDetermination:
         """
         ...
 
-    def from_cif(self, cif_path: Path | str) -> Self:
+    @classmethod
+    def from_cif(cls, cif_path: Path | str, altlocs: AltlocOpts = AltlocOpts.ALL) -> Self:
         """Return a StructureDetermination object from a CIF file.
-        Since CIF files do not normally contain the measurements, this will typically
-        construct only metadata for measurements.
+        Since CIF files do not normally contain the measurements, this only records metadata
+        about measurements used for the structure determination (e.g., unit cell parameters,
+        number of unique reflections, etc...).
 
         Args:
             cif_path: Path to the CIF file.
+            altlocs: How to handle alternative locations in the structure, using options
+                defined by biotite.structure.io.pdbx.convert.get_structure. We favor "all".
+
+        Implementation notes:
+            We will read CIF files using biotite.structure.io.pdbx.CIFFile.read() and
+            extract the AtomArrayStack using biotite.structure.io.pdbx.convert.get_structure.
         """
         ...
+
+

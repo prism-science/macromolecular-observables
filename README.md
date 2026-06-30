@@ -6,8 +6,8 @@ and measurements. A joint project of Radial Science and Reciprocal Spaceship.
 This package is designed to facilitate the exchange and manipulation of
 measurements of macromolecules, their structural ensembles, and their properties which can be 
 computed from structures. It aims to _define_ a common interface for measurements of macromolecules 
-and for ensembles of macromolecular structures, not necessarily to implement all possible classes 
-which fit that description. While we encourage contributions to the package, our main goal is to 
-encourage interoperability between different packages that work with macromolecular structures and 
-observables.
+and for ensembles of macromolecular structures. Potential contributors are encouraged, but by no
+means required, to implement and contribute ForwardModel and Measurement classes to this package,
+or to suggest changes to the Structure and StructureDetermination classes.
+
 

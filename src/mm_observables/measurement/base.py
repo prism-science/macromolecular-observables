@@ -1,5 +1,6 @@
 import abc
 from dataclasses import dataclass
+from pathlib import Path
 from typing import (
     Callable,
     Protocol,
@@ -11,10 +12,10 @@ import torch
 from torch import Tensor
 
 
-# TODO: I feel like there _should_ be a distinction between coordinates and values,
-#   but it is really in dimensions (values are 1D, each corresponding to an n-dimensional
-#   coordinate) and data types (values are always floats).
-class DataCoordinates(Tensor, metaclass=abc.ABCMeta):
+class MeasurementCoordinates(Tensor, metaclass=abc.ABCMeta):
+    """
+    Represents the coordinates of a measurement, for instance, Miller indices for Bragg diffraction.
+    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.validate()
@@ -27,7 +28,8 @@ class DataCoordinates(Tensor, metaclass=abc.ABCMeta):
         ...
 
 
-class DataValues(Tensor, metaclass=abc.ABCMeta):
+class MeasurementValues(Tensor, metaclass=abc.ABCMeta):
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.validate()
@@ -42,7 +44,7 @@ class DataValues(Tensor, metaclass=abc.ABCMeta):
 @dataclass
 @runtime_checkable
 class MeasurementMetadata(Protocol):
-    data_coordinates: DataCoordinates
+    data_coordinates: MeasurementCoordinates
     ...
 
     def __eq__(self, other: object) -> bool:
@@ -74,7 +76,7 @@ class Measurement(metaclass=abc.ABCMeta):
     """
     def __init__(
             self,
-            values: DataValues,
+            values: MeasurementValues,
             metadata: MeasurementMetadata,
             loss_implementation: Callable[[Self], Tensor],
     ):
@@ -82,7 +84,7 @@ class Measurement(metaclass=abc.ABCMeta):
         Initialize a Measurement object.
 
         Args:
-            values (DataValues): Measurement data, e.g. structure factor amplitudes.
+            values (MeasurementValues): Measurement data, e.g. structure factor amplitudes.
             metadata (MeasurementMetadata): Metadata associated with the measurement,
                 e.g. unit cell and space group. Can include both data-derived quantities (e.g.,
                 unit cell) and experimental setup (e.g., sample to detector distance) and must
@@ -106,13 +108,23 @@ class Measurement(metaclass=abc.ABCMeta):
         """Ensure that the data values, metadata, and loss function are compatible"""
         ...
 
+    @classmethod
+    @abc.abstractmethod
+    def from_file(
+            cls, file: Path | str, loss_implementation: Callable[[Self], Tensor] | None
+    ) -> Self:
+        """Load a measurement from a file, e.g., an .mtz file.
+        Subclasses must implement this method and provide a default loss function.
+        """
+        ...
+
     @property
-    def data_coordinates(self) -> DataCoordinates:
+    def data_coordinates(self) -> MeasurementCoordinates:
         """Coordinates of the measurement data, e.g. Miller indices."""
         return self._metadata.data_coordinates
 
     @property
-    def data_values(self) -> DataValues:
+    def data_values(self) -> MeasurementValues:
         """Measurement data, e.g. structure factor amplitudes."""
         return self._data_y
 

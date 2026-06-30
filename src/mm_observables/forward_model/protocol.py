@@ -25,3 +25,9 @@ class ForwardModel(Protocol):
     def __call__(self, structure: Structure) -> Measurement:
         """Return the forward model output for the given structure."""
         ...
+
+    def __metadata_for_cif_output(self) -> dict[str, str]:
+        """Return a dictionary of metadata for the CIF output to describe the structure/ensemble
+        determination method used.
+        """
+        ...
