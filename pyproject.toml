@@ -45,9 +45,9 @@ CI = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/diff-use/macromolecular-observables"
-Repository = "https://github.com/diff-use/macromolecular-observables"
-Issues = "https://github.com/diff-use/macromolecular-observables/issues"
+Homepage = "https://github.com/prism-science/macromolecular-observables"
+Repository = "https://github.com/prism-science/macromolecular-observables"
+Issues = "https://github.com/prism-science/macromolecular-observables/issues"
 
 # --- Ruff Linting Configuration ---
 [tool.mypy]
