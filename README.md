@@ -1,6 +1,6 @@
 # macromolecular-observables (mm_observables)
 An package for conveying and transforming information about proteins--ensembles, structures, 
-and measurements. A joint project of Radial Science and Reciprocal Spaceship.
+and measurements. A joint project of Prism and Reciprocal Spaceship.
 
 ## Philosophy
 This package is designed to facilitate the exchange and manipulation of
